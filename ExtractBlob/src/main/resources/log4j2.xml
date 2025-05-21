@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration xmlns="https://logging.apache.org/xml/ns"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="https://logging.apache.org/xml/ns
+			                   		https://logging.apache.org/xml/ns/log4j-config-2.xsd"
+	status="WARN">
+
+	<Properties>
+		<Property name="app" value="ExtractBlob"/>
+		<Property name="baseDir" value="../logs"/>
+	</Properties>
+
+	<Appenders>
+		<Console name="GeneralConsoleAppender" target="SYSTEM_OUT">
+			<PatternLayout
+				pattern="%highlight{%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg%n%throwable}{FATAL=red bold, ERROR=red, WARN=yellow, INFO=white, DEBUG=cyan, TRACE=white}"
+				disableAnsi="false" />
+		</Console>
+		<RollingFile name="GeneralFileAppender"
+			fileName="${baseDir}/${app}.log"
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			<PatternLayout 	pattern="%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg%n%throwable"/>
+			<Policies>
+				<OnStartupTriggeringPolicy />
+			</Policies>
+		</RollingFile>
+
+		<Console name="NewLineConsoleAppender" target="SYSTEM_OUT">
+			<PatternLayout pattern="%n" />
+		</Console>
+		<RollingFile name="NewLineFileAppender"
+			fileName="${baseDir}/${app}.log"
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			<PatternLayout pattern="%n"/>
+			<Policies>
+				<OnStartupTriggeringPolicy />
+			</Policies>
+		</RollingFile>
+
+		<Console name="ConsoleAppenderStart" target="SYSTEM_OUT">
+			<PatternLayout
+				pattern="%style{%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg}{white}"
+				disableAnsi="false" />
+		</Console>
+		<Console name="ConsoleAppenderDocNo" target="SYSTEM_OUT">
+			<PatternLayout pattern="%style{%msg}{yellow bold}"
+				disableAnsi="false" />
+		</Console>
+		<Console name="ConsoleAppenderEnd" target="SYSTEM_OUT">
+			<PatternLayout pattern="%style{%msg%n}{white}"
+				disableAnsi="false" />
+		</Console>
+		<RollingFile name="FileAppenderStart"
+			fileName="${baseDir}/${app}.log"
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			<PatternLayout pattern="%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg"/>
+			<Policies>
+				<OnStartupTriggeringPolicy />
+			</Policies>
+		</RollingFile>
+		<RollingFile name="FileAppenderDocNo"
+			fileName="${baseDir}/${app}.log"
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			<PatternLayout pattern="%msg"/>
+			<Policies>
+				<OnStartupTriggeringPolicy />
+			</Policies>
+		</RollingFile>
+		<RollingFile name="FileAppenderEnd"
+			fileName="${baseDir}/${app}.log"
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			<PatternLayout pattern="%msg%n"/>
+			<Policies>
+				<OnStartupTriggeringPolicy />
+			</Policies>
+		</RollingFile>
+	</Appenders>
+	<Loggers>
+		<Root level="ERROR"></Root>
+
+		<Logger name="General" level="INFO">
+			<AppenderRef ref="GeneralConsoleAppender" />
+			<AppenderRef ref="GeneralFileAppender" />
+		</Logger>
+
+		<Logger name="NewLine" level="TRACE">
+			<AppenderRef ref="NewLineConsoleAppender" />
+			<AppenderRef ref="NewLineFileAppender" />
+		</Logger>
+
+		<Logger name="ConsoleLoggerStart" level="INFO">
+			<AppenderRef ref="ConsoleAppenderStart" />
+			<AppenderRef ref="FileAppenderStart" />
+		</Logger>
+		<Logger name="ConsoleLoggerDocNo" level="INFO">
+			<AppenderRef ref="ConsoleAppenderDocNo" />
+			<AppenderRef ref="FileAppenderDocNo" />
+		</Logger>
+		<Logger name="ConsoleLoggerEnd" level="INFO">
+			<AppenderRef ref="ConsoleAppenderEnd" />
+			<AppenderRef ref="FileAppenderEnd" />
+		</Logger>
+	</Loggers>
+</Configuration>
