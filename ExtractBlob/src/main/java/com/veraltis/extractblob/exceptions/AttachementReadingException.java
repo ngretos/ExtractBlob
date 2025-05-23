@@ -9,8 +9,8 @@ public class AttachementReadingException extends Exception {
 
 	private static final String message = "Could not save attachment.";
 
-	public AttachementReadingException() {
-		super(message);
+	public AttachementReadingException(String msg) {
+		super();
 	}
 
 	public AttachementReadingException(Throwable e) {

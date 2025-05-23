@@ -5,28 +5,37 @@ import java.util.ArrayList;
 import java.util.List;
 
 class ExtractionRunDetails {
+	
+	public static final String	STATUS_SAVED	= "s";
+	public static final String	STATUS_FAILED	= "f";
+
 	private ExtractionRun extractionRun;
 
 	private String id;
 	private String docId;
 	private String relType;
-	private String relID;
+	private String relId;
 	private String cId;
 	private String accountNo;
 	private String actionId;
+	private String status = STATUS_SAVED;
+	private String failureReason;
+
+	private File file;
 	
-	private List<File> files;
+	private List<File> attachments = new ArrayList<File>();
 
 	
-	public ExtractionRunDetails(ExtractionRun extractionLog, String docId, String relType, String relID, String cId, String accountNo, String actionId) {
+	public ExtractionRunDetails(ExtractionRun extractionLog, String docId, String relType, String relID, String cId, String accountNo, String actionId, File file) {
 		super();
 		this.extractionRun	= extractionLog;
 		this.docId			= docId;
 		this.relType		= relType;
-		this.relID			= relID;
+		this.relId			= relID;
 		this.cId			= cId;
 		this.accountNo		= accountNo;
 		this.actionId		= actionId;
+		this.file			= file;
 	}
 	
 	public String getId() {
@@ -49,36 +58,44 @@ class ExtractionRunDetails {
 	public void setRelType(String relType) {
 		this.relType = relType;
 	}
-	public String getRelID() {
-		return this.relID;
+	public String getRelId() {
+		return this.relId;
 	}
-	public void setRelID(String relID) {
-		this.relID = relID;
+	public void setRelId(String relID) {
+		this.relId = relID;
 	}
-	public List<File> getFiles() {
-		return this.files;
+	public List<File> getAttachments() {
+		return this.attachments;
 	}
-	public void setFiles(List<File> files) {
-		this.files = files;
+	public void setAttachments(List<File> files) {
+		this.attachments = files;
 	}
-	public boolean addFile(File file) {
-		if(this.files == null)
-			this.files = new ArrayList<File>();
-		
-		boolean added = this.files.add(file);
+	public boolean addAttachment(File file) {
+		boolean added = this.attachments.add(file);
 		
 		if(added)
 			this.extractionRun.setDocumentsExtracted(this.extractionRun.getDocumentsExtracted() + 1);
 		
 		return added;
 	}
-	public boolean removeFile(File file) {
-		boolean removed = this.files.remove(file);
+	public void removeAttachment(File file) {
+		if(this.attachments.size() == 0)
+			return;
 		
-		if(removed)
-			this.extractionRun.setDocumentsExtracted(this.extractionRun.getDocumentsExtracted() - 1);
+		this.attachments.remove(file);
 		
-		return removed;
+		this.extractionRun.setDocumentsExtracted(this.extractionRun.getDocumentsExtracted() - 1);
+	}
+	public void markAsFailed(String reason) {
+		if(this.status.equals(STATUS_FAILED))
+			return;
+
+		this.status = STATUS_FAILED;
+		this.failureReason = reason;
+		this.extractionRun.markAsSucceededWithErrors();
+		this.extractionRun.setErroneousRows(this.extractionRun.getErroneousRows() + 1);
+		this.extractionRun.setDocumentsExtracted(this.extractionRun.getDocumentsExtracted() - this.attachments.size() - 1);
+		this.attachments.removeIf(i -> i != null);
 	}
 	public String getCId() {
 		return this.cId;
@@ -105,4 +122,35 @@ class ExtractionRunDetails {
 		this.extractionRun = extractionLog;
 	}
 
+	public String getStatus() {
+		return this.status;
+	}
+
+	public void setStatus(String status) {
+		this.status = status;
+	}
+
+	public File getFile() {
+		return this.file;
+	}
+
+	public void setFile(File file) {
+		this.file = file;
+	}
+
+	public boolean isSaved() {
+		return this.status.equals(STATUS_SAVED);
+	}
+
+	public boolean isFailed() {
+		return this.status.equals(STATUS_FAILED);
+	}
+
+	public String getFailureReason() {
+		return this.failureReason;
+	}
+
+	public void setFailureReason(String failureReason) {
+		this.failureReason = failureReason;
+	}
 }

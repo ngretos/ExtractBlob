@@ -13,6 +13,10 @@ public class FileSaveException extends Exception {
 		super(message);
 	}
 
+	public FileSaveException(String msg) {
+		super(msg);
+	}
+
 	public FileSaveException(Throwable e) {
 		this(message, e);
 	}

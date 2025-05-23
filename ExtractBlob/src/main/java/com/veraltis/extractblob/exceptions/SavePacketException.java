@@ -13,6 +13,10 @@ public class SavePacketException extends Exception {
 		super(message);
 	}
 
+	public SavePacketException(String msg) {
+		super(msg);
+	}
+
 	public SavePacketException(Throwable e) {
 		this(message, e);
 	}

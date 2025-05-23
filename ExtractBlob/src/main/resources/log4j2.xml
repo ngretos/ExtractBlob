@@ -39,7 +39,7 @@
 
 		<Console name="ConsoleAppenderStart" target="SYSTEM_OUT">
 			<PatternLayout
-				pattern="%style{%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg}{white}"
+				pattern="%highlight{%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg}{FATAL=red bold, ERROR=red, WARN=yellow, INFO=white, DEBUG=cyan, TRACE=white}"
 				disableAnsi="false" />
 		</Console>
 		<Console name="ConsoleAppenderDocNo" target="SYSTEM_OUT">
@@ -47,7 +47,7 @@
 				disableAnsi="false" />
 		</Console>
 		<Console name="ConsoleAppenderEnd" target="SYSTEM_OUT">
-			<PatternLayout pattern="%style{%msg%n}{white}"
+			<PatternLayout pattern="%highlight{%msg%n}{FATAL=red bold, ERROR=red, WARN=yellow, INFO=white, DEBUG=cyan, TRACE=white}"
 				disableAnsi="false" />
 		</Console>
 		<RollingFile name="FileAppenderStart"

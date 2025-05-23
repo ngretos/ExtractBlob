@@ -13,6 +13,10 @@ public class SaveRunException extends Exception {
 		super(message);
 	}
 
+	public SaveRunException(String msg) {
+		super(msg);
+	}
+
 	public SaveRunException(Throwable e) {
 		this(message, e);
 	}

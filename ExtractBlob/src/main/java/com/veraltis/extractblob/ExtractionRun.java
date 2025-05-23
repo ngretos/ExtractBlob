@@ -1,5 +1,6 @@
 package com.veraltis.extractblob;
 
+import java.io.File;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,7 @@ public class ExtractionRun {
 	private Integer		rowsToProcess;
 	private Integer		packetSize;
 	private Timestamp	processedUpTo;
+	private int			erroneousRows;
 	private int			rowsProcessed;
 	private int			documentsExtracted;
 	private String		duration;
@@ -35,11 +37,12 @@ public class ExtractionRun {
 		this.runFor				= runFor;
 	}
 
-	public ExtractionRunDetails newDetails(String docId, String relType, String relID, String cId, String accountNo, String actionId) {
-		ExtractionRunDetails row = new ExtractionRunDetails(this, docId, relType, relID, cId, accountNo, actionId);
+	public ExtractionRunDetails newDetails(String docId, String relType, String relID, String cId, String accountNo, String actionId, File file) {
+		ExtractionRunDetails row = new ExtractionRunDetails(this, docId, relType, relID, cId, accountNo, actionId, file);
 		
 		this.details.add(row);
-		this.rowsProcessed = this.rowsProcessed + 1;
+		this.rowsProcessed++;
+		this.documentsExtracted++;
 		
 		return row;
 	}
@@ -121,7 +124,7 @@ public class ExtractionRun {
 		
 		if(removed) {
 			this.rowsProcessed = this.rowsProcessed - 1;
-			this.documentsExtracted = this.documentsExtracted - details.getFiles().size();
+			this.documentsExtracted = this.documentsExtracted - details.getAttachments().size() - 1;
 		}
 		
 		return removed;
@@ -175,5 +178,42 @@ public class ExtractionRun {
 			return "completed successfully with errors";
 
 		return "failed";
+	}
+
+	public int getErroneousRows() {
+		return this.erroneousRows;
+	}
+
+	public void setErroneousRows(int erroneousRows) {
+		this.erroneousRows = erroneousRows;
+	}
+
+	public void markAsSucceeded() {
+		if(isFailed() || isSucceededWithErrors())
+			return;
+		this.status = STATUS_SUCCESS;
+	}
+
+	public void markAsSucceededWithErrors() {
+		if(isFailed())
+			return;
+		
+		this.status = STATUS_SUCCESS_WITH_ERRORS;
+	}
+
+	public void markAsFailed() {
+		this.status = STATUS_FAILED;
+	}
+	
+	public boolean isSucceeded() {
+		return this.status != null && this.status.equals(STATUS_SUCCESS);
+	}
+	
+	public boolean isSucceededWithErrors() {
+		return this.status != null && this.status.equals(STATUS_SUCCESS_WITH_ERRORS);
+	}
+	
+	public boolean isFailed() {
+		return this.status != null && this.status.equals(STATUS_FAILED);
 	}
 }

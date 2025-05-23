@@ -13,6 +13,10 @@ public class RetrievingDocsException extends Exception {
 		super(message);
 	}
 
+	public RetrievingDocsException(String msg) {
+		super(msg);
+	}
+
 	public RetrievingDocsException(Throwable e) {
 		this(message, e);
 	}

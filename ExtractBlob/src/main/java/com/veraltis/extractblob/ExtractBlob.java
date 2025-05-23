@@ -68,7 +68,7 @@ public class ExtractBlob {
 	
 	private List<String> paramNames = null;
 
-	private final String	UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX = "[<>:\\/|?*,]";
+	private final String	UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX = "[<>:\\/|?*]";
 
 	private final String CONFIG_FILE_NAME = "config.properties";
 
@@ -183,6 +183,7 @@ public class ExtractBlob {
 			+ "		CId nvarchar(max) NULL, "
 			+ "		AccountNo nvarchar(max) NULL, "
 			+ "		ActionId nvarchar(max) NULL, "
+			+ "		Status varchar(2), "
 			+ "		CONSTRAINT {tableName}_PK PRIMARY KEY (Id), "
 			+ "		CONSTRAINT {tableName}_{refTableName}_FK FOREIGN KEY ({refTableName}_Id) REFERENCES dbo.{refTableName}(Id) ON DELETE CASCADE"
 			+ "	) ON [PRIMARY];";
@@ -197,7 +198,7 @@ public class ExtractBlob {
 
 	private final String	SQL_SAVE_INITIAL_RUN				= "insert {tableName}(RunDate, Initialize, ExtractAttachments, RowsToProcess, PacketSize, RunFor) values(?, ?, ?, ?, ?, ?)";
 	private final String	SQL_SAVE_RUN						= "Update {tableName} set RowsProcessed = ?, DocumentsExtracted = ?, ProcessedUpTo = ?, Status = ?, Duration = ?  Where Id = ?";
-	private final String	SQL_SAVE_RUN_DETAILS				= "insert {tableName}({refTableName}_Id, DocId, RelType, RelId, Cid, AccountNo, ActionId, Path) values(?, ?, ?, ?, ?, ?, ?, ?)";
+	private final String	SQL_SAVE_RUN_DETAILS				= "insert {tableName}({refTableName}_Id, DocId, RelType, RelId, Cid, AccountNo, ActionId, Path, Status, Reason) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 	private final String	SQL_DELETE_RUN 						= "Delete {tableName} Where Id = ?";
 
 	private final String SQL_MAX_PROCESSED_DATE = "select max(ProcessedUpTo) from {tableName}";
@@ -329,7 +330,6 @@ public class ExtractBlob {
 
 			logNewLine();
 			info("Task started" + (isTestMode() ? " (Test Mode: No actual files will be extracted)" : StringUtils.EMPTY) + ".");
-			logNewLine();
 			
 			extract();
 		}
@@ -452,7 +452,7 @@ public class ExtractBlob {
         this.config = PropertiesUtils.loadProperties(CONFIG_FILE_NAME);
 	}
 
-	private boolean extract() {
+	private void extract() {
 		int packetSize = getParam(this.PARAM_NAME_ROWS_PACKET_SIZE) != null ? 
 				Integer.parseInt(getParam(this.PARAM_NAME_ROWS_PACKET_SIZE)) :
 					Integer.parseInt(getConfig(CONFIG_ROWS_PACKET_SIZE));
@@ -472,8 +472,6 @@ public class ExtractBlob {
 			}
 		}
 			
-		boolean success = true;
-		
 		List<DocRow> docRows;
 
 		try {
@@ -512,17 +510,10 @@ public class ExtractBlob {
 					finalizePacketProcessing();
 				}
 			}
-			this.extractionRun.setStatus(ExtractionRun.STATUS_SUCCESS);
-		}
-		catch(FileSaveException | AttachementReadingException e) {
-			this.extractionRun.setStatus(ExtractionRun.STATUS_SUCCESS_WITH_ERRORS);
-			success = false;
-			error("An error occurred while processing packet's files. Stop processing.", e);
-			finalizePacketProcessing();
+			this.extractionRun.markAsSucceeded();
 		}
 		catch (RetrievingDocsException e) {
-			this.extractionRun.setStatus(ExtractionRun.STATUS_SUCCESS_WITH_ERRORS);
-			success = false;
+			this.extractionRun.markAsSucceededWithErrors();
 			error("Error while retrieving rows for packet.", e);
 		}
 		finally {
@@ -532,21 +523,19 @@ public class ExtractBlob {
 				saveRun();
 			}
 			catch (SaveRunException e) {
-				this.extractionRun.setStatus(ExtractionRun.STATUS_FAILED);
+				this.extractionRun.markAsFailed();
 				this.extractionRun.setRowsProcessed(0);
 				this.extractionRun.setDocumentsExtracted(0);
-				deleteFolder(Paths.get(this.extractionFolder));
-				deleteRun();
-				success = false;
 				error(e.getMessage() + " Rolling back...", e);
+				deleteFolder(Paths.get(this.extractionFolder));
+				deleteRunFromDatabase();
 			}
 		}
-		return success;
 	}
 
 	private void handleSavePacketException(SavePacketException e) {
 		error(e.getMessage(), e.getCause());
-		deletePacketFiles();
+		deletePacketFiles(e.getMessage());
 	}
 
 	private void finalizePacketProcessing() {
@@ -622,7 +611,7 @@ public class ExtractBlob {
 		return sql;
 	}
 
-	private void extract(List<DocRow> rows, String logMsgPrefix) throws FileSaveException, AttachementReadingException{
+	private void extract(List<DocRow> rows, String logMsgPrefix){
 		Collections.sort(rows, Comparator.comparing(DocRow :: getCreationDate));
 
 		info("Extracting...");
@@ -637,44 +626,52 @@ public class ExtractBlob {
 				break;
 
 			i++;
-			
+
 			targetFolder = constructTargetFolderPath(row);
 			filename = constructFileName(row);
 			
-			if(isMessageFile(row.getFileName()) && extractAttachemts()) {
-				targetFolder = getDistinctivePath(targetFolder, constructFileName(row));
-				filename = row.getFileName();
-			}
-
+			String logFileMsg = logMsgPrefix + ". ";
+			ExtractionRunDetails runDetails = null;
 			File file = null;
-			try {
-				file = save(row.getDocData(), targetFolder, filename);
-
-				logFile(logMsgPrefix + ". Extracted document", i, row.getFileName() + 
-						StringUtils.SPACE + "to" + StringUtils.SPACE + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())));
-			}
-			catch (FileSaveException e) {
-				deleteFile(file, true);
-				throw e;
-			}
-
-			ExtractionRunDetails runDetails = 
-					getRunDetails(row.getDocId(), row.getRelType(), row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId());
-
-			runDetails.addFile(file);
-
-			if(isMessageFile(row.getFileName()) && extractAttachemts()) {
-				try {
-					extractAndSaveAttachments(row.getDocData(), targetFolder, runDetails, 1);
-				}
-				catch (AttachementReadingException | FileSaveException e) {
-					deleteFolder(file.getParentFile().toPath());
-					this.extractionRun.removeDetails(runDetails);
-					throw e;
-				}
-			}
 			
-			this.extractionRun.setProcessedUpTo(row.getCreationDate());
+			try {
+				try {
+					if(isMessageFile(row.getFileName()) && extractAttachemts()) {
+						targetFolder = getDistinctivePath(targetFolder, constructFileName(row));
+						filename = row.getFileName();
+					}
+				}
+				finally {
+					file = new File(targetFolder, filename);
+					runDetails = 
+							getRunDetails(row.getDocId(), row.getRelType(), row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId(), file);
+				}
+
+				save(row.getDocData(), file);
+
+				if(isMessageFile(row.getFileName()) && extractAttachemts()) {
+					try {
+						extractAndSaveAttachments(row.getDocData(), targetFolder, runDetails, 1);
+					}
+					catch (AttachementReadingException | FileSaveException e) {
+						deleteFolder(file.getParentFile().toPath());
+						throw e;
+					}
+				}
+
+				logFileMsg += "Extracted "; 
+			}
+			catch (AttachementReadingException | FileSaveException  e) {
+				logFileMsg += "Failed to extract ";
+				runDetails.markAsFailed(e.getMessage());
+				deleteFile(file, true);
+			}
+			finally {
+				this.extractionRun.setProcessedUpTo(row.getCreationDate());
+				logFile(logFileMsg + "document", i, row.getFileName() + 
+						 " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())),
+						 !runDetails.isSaved());
+			}
 		}
 	}
 
@@ -705,16 +702,17 @@ public class ExtractBlob {
 			if(chunks.getAttachData() == null)
 				continue;
 
-			File file;
+			File file = new File(targetFolder, getDistinctiveFileName(targetFolder, chunks.getAttachDisplayName().toString()));
 			try {
-				file = save(chunks.getAttachData(), targetFolder, getDistinctiveFileName(targetFolder, chunks.getAttachDisplayName().toString()));
+				save(chunks.getAttachData(), file);
+				runDetails.addAttachment(file);
 
-				logFile(identationStr + "Extracted attachment", ++attachemtNo, chunks.getAttachDisplayName().toString() + 
-						StringUtils.SPACE + "to" + StringUtils.SPACE + 
-						Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())));
+				logFile(identationStr + "Extracted attachment", ++attachemtNo, chunks.getAttachDisplayName().toString()
+						+ " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())), !runDetails.isSaved());
 			}
 			catch (FileSaveException e) {
-				throw new FileSaveException("Could not save attachment (Doc_Id: " + runDetails.getDocId() + ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
+				throw new FileSaveException("Could not save attachment (Doc_Id: " + runDetails.getDocId()
+						+ ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
 			}
 
 			if(isMessageFile(chunks)) {
@@ -722,10 +720,11 @@ public class ExtractBlob {
 					extractAndSaveAttachments(attachedMsg, getDistinctivePath(targetFolder, chunks.getAttachDisplayName().toString()), runDetails, identation + 1);
 				}
 				catch (IOException e) {
-					throw new AttachementReadingException("Could not read attached mail data (Doc_Id: " + runDetails.getDocId() + ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
+					throw new AttachementReadingException(
+							"Could not read attached mail data (Doc_Id: " + runDetails.getDocId()
+									+ ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
 				}
 			}
-			runDetails.addFile(file);
 		}
 	}
 
@@ -789,31 +788,30 @@ public class ExtractBlob {
 		return number > 0 ? StringUtils.SPACE + "(" + String.valueOf(number + 1) + ")": StringUtils.EMPTY;
 	}
 
-	private File save(ByteChunk attachedData, String targetFolder, String fileName) throws FileSaveException {
+	private void save(ByteChunk attachedData, File file) throws FileSaveException {
 		try(ByteArrayInputStream is = new ByteArrayInputStream(attachedData.getValue())){
-			return save(is, targetFolder, fileName);
+			save(is, file);
 		}
 		catch (IOException e) {
 			throw new FileSaveException(e);
 		}
 	}
 
-	private File save(Blob docData, String targetFolder, String fileName) throws FileSaveException {
+	private void save(Blob docData, File file) throws FileSaveException {
 		try {
-			return save(docData.getBinaryStream(), targetFolder, fileName);
+			save(docData.getBinaryStream(), file);
 		}
 		catch (SQLException e) {
 			throw new FileSaveException(e);
 		}
 	}
 
-	private File save(InputStream inputStream, String targetFolder, String fileName) throws FileSaveException {
-		File folder = new File(targetFolder);
-		File file = new File(targetFolder + "/" + fileName);
-			
+	private void save(InputStream inputStream, File file) throws FileSaveException {
 		if(isTestMode())
-			return file;
+			return;
 
+		File folder = file.getParentFile();
+			
 		try {
 			folder.mkdirs();
 
@@ -828,10 +826,9 @@ public class ExtractBlob {
 			}
 		}
 		catch(Exception e) {
+			file.getParentFile().delete();
 			throw new FileSaveException(e);
 		}
-
-		return file;
 	}
 
 	private boolean isMessageFile(String fileName)
@@ -902,8 +899,8 @@ public class ExtractBlob {
 	}
 
 	private ExtractionRunDetails getRunDetails(String docId, String relType, String relID, String cId, String accountNo,
-			String actionId) {
-		return this.extractionRun.newDetails(docId, relType, relID, cId, accountNo, actionId);
+			String actionId, File file) {
+		return this.extractionRun.newDetails(docId, relType, relID, cId, accountNo, actionId, file);
 	}
 	
 	private void saveInitialRunRow() throws SQLException {
@@ -948,10 +945,37 @@ public class ExtractBlob {
 		String sql = this.SQL_SAVE_RUN_DETAILS.replaceAll(this.SQL_TABLE_NAME_SUBST_VARIABLE, getConfig(CONFIG_EXTRACTION_RUN_DETAILS_TABLE))
 				.replaceAll(this.SQL_REF_TABLE_NAME_SUBST_VARIABLE, getConfig(CONFIG_EXTRACTION_RUN_TABLE));
 		
-		try {
-			executeSavePacketSQL(sql);
+		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection();
+				PreparedStatement stmnt = conn.prepareStatement(sql);) {
+
+			try {
+				conn.setAutoCommit(false);
+
+				for (ExtractionRunDetails row : this.extractionRun.getDetails()) {
+
+					executeSavePacketRowSQL(stmnt, this.extractionRun.getId(), row.getId(), row.getRelType(),
+							row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId(),
+							row.getFile().getPath(), row.getStatus(), row.getFailureReason());
+
+					for (File file : row.getAttachments()) {
+						executeSavePacketRowSQL(stmnt, this.extractionRun.getId(), row.getId(), row.getRelType(),
+								row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId(), file.getPath(),
+								row.getStatus(), row.getFailureReason());
+					}
+
+					conn.commit();
+					conn.setAutoCommit(true);
+				}
+			}
+			catch (SQLException e) {
+				conn.rollback();
+				throw e;
+			}
+			finally {
+				conn.setAutoCommit(true);
+			}
 		}
-		catch(SQLException e) {
+		catch (SQLException e) {
 			throw new SavePacketException(e);
 		}
 	}
@@ -972,35 +996,22 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void executeSavePacketSQL(String sql) throws SQLException  {
-		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection();){
+	private void executeSavePacketRowSQL(PreparedStatement stmnt, int id, String docId, String relType, String relId, 
+											String cId, String accountNo, String actionId, String path, String status, String reason) throws SQLException  {
+		
+		int i = 1;
+		stmnt.setInt(	i++, id);
+		stmnt.setString(i++, docId);
+		stmnt.setString(i++, relType);
+		stmnt.setString(i++, relId);
+		stmnt.setString(i++, cId);
+		stmnt.setString(i++, accountNo);
+		stmnt.setString(i++, actionId);
+		stmnt.setString(i++, path);
+		stmnt.setString(i++, status);
+		stmnt.setString(i++, reason);
 
-			try (PreparedStatement stmnt = conn.prepareStatement(sql);){
-
-				conn.setAutoCommit(false);
-				for(ExtractionRunDetails row : this.extractionRun.getDetails()) {
-					for(File file : row.getFiles()) {
-						int i = 1;
-						stmnt.setInt(	i++, this.extractionRun.getId());
-						stmnt.setString(i++, row.getDocId());
-						stmnt.setString(i++, row.getRelType());
-						stmnt.setString(i++, row.getRelID());
-						stmnt.setString(i++, row.getCId());
-						stmnt.setString(i++, row.getAccountNo());
-						stmnt.setString(i++, row.getActionId());
-						stmnt.setString(i++, file.getPath());
-
-						stmnt.executeUpdate();
-					}				
-				}
-				conn.commit();
-				conn.setAutoCommit(true);
-			}
-			catch(SQLException e) {
-				conn.rollback();
-				conn.setAutoCommit(true);
-			}
-		}
+		stmnt.executeUpdate();
 	}
 
 	private void executeSaveRunSQL(String sql) throws SQLException {
@@ -1019,7 +1030,7 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void deleteRun() {
+	private void deleteRunFromDatabase() {
 		if(isTestMode())
 			return;
 
@@ -1125,12 +1136,19 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void logFile(String msgStart, int docNo, String msgEnd) {
+	private void logFile(String msgStart, int docNo, String msgEnd, boolean asWarning) {
 		String docNoStr = " #" + docNo + StringUtils.SPACE;
 		
-		this.docloggerStart.info(msgStart);
-		this.docloggerDocNo.info(docNoStr);
-		this.docloggerEnd.info(msgEnd);
+		if(asWarning) {
+			this.docloggerStart.warn(msgStart);
+			this.docloggerDocNo.warn(docNoStr);
+			this.docloggerEnd.warn(msgEnd);
+		}
+		else {
+			this.docloggerStart.info(msgStart);
+			this.docloggerDocNo.info(docNoStr);
+			this.docloggerEnd.info(msgEnd);
+		}
 	}
 	
 	private void logNewLine() {
@@ -1177,10 +1195,12 @@ public class ExtractBlob {
 		return Boolean.parseBoolean(getParam(PARAM_NAME_EXTRACT_ATTACHMENTS)); 
 	}
 	
-	private void deletePacketFiles() {
+	private void deletePacketFiles(String reason) {
 		info("Deleting packet's files...");
 		for(ExtractionRunDetails detail : this.extractionRun.getDetails()) {
-			for(File file : detail.getFiles()) {
+			detail.markAsFailed(reason);
+			deleteFile(detail.getFile(), true);
+			for(File file : detail.getAttachments()) {
 				deleteFile(file, true);
 			}
 		}
