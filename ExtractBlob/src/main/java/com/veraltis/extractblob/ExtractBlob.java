@@ -217,6 +217,7 @@ public class ExtractBlob {
 	private Logger	docloggerDocNo	= LoggerFactory.getLogger("ConsoleLoggerDocNo");
 	private Logger	docloggerEnd	= LoggerFactory.getLogger("ConsoleLoggerEnd");
 
+	private LocalDateTime startTime = LocalDateTime.now();
 	private LocalDateTime endTime;
 	
 	private Boolean shouldInitialize = null;
@@ -344,7 +345,8 @@ public class ExtractBlob {
 			if(this.extractionRun != null)
 				msg += this.extractionRun.getExecutionStatusDescr() 
 				+ ". Rows processed: " + this.extractionRun.getRowsProcessed()
-				+ ". Documents extracted: " + this.extractionRun.getDocumentsExtracted()
+				+ " (Erroneous rows: " + this.extractionRun.getErroneousRows()
+				+ "). Documents extracted: " + this.extractionRun.getDocumentsExtracted()
 				+ ". Duration: " + this.extractionRun.getDuration()
 				+ (isTestMode() ? " (Test Mode: No actual files extracted.)" : StringUtils.SPACE) + ".";
 			else
@@ -558,7 +560,7 @@ public class ExtractBlob {
 				: Integer.valueOf(getConfig(this.CONFIG_ROWS_PACKET_SIZE));
 
 		this.extractionRun =
-				new ExtractionRun(Timestamp.valueOf(LocalDateTime.now()), shouldInitialize(),
+				new ExtractionRun(Timestamp.valueOf(this.startTime), shouldInitialize(),
 						extractAttachemts(), rowsToBeProcessed, packetSize, 
 						getParam(PARAM_NAME_TIME_TO_RUN));
 
@@ -702,24 +704,29 @@ public class ExtractBlob {
 			if(chunks.getAttachData() == null)
 				continue;
 
-			File file = new File(targetFolder, getDistinctiveFileName(targetFolder, chunks.getAttachDisplayName().toString()));
+			String filename = chunks.getAttachDisplayName() != null ? chunks.getAttachDisplayName().toString() : chunks.getAttachFileName().toString();
+			
+			if(filename == null)
+				filename = "attachment";
+			
+			File file = new File(targetFolder, getDistinctiveFileName(targetFolder, filename));
 			try {
 				save(chunks.getAttachData(), file);
 				runDetails.addAttachment(file);
 
-				logFile(identationStr + "Extracted attachment", ++attachemtNo, chunks.getAttachDisplayName().toString()
+				logFile(identationStr + "Extracted attachment", ++attachemtNo, filename
 						+ " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())), !runDetails.isSaved());
 			}
 			catch (FileSaveException e) {
 				throw new FileSaveException("Could not save attachment (Doc_Id: " + runDetails.getDocId()
-						+ ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
+						+ ", Attachment name: " + filename + ").", e);
 			}
 
 			if(isMessageFile(chunks)) {
 				try(MAPIMessage attachedMsg = new MAPIMessage(new ByteArrayInputStream(chunks.getAttachData().getValue()))){
 					extractAndSaveAttachments(attachedMsg, getDistinctivePath(targetFolder, chunks.getAttachDisplayName().toString()), runDetails, identation + 1);
 				}
-				catch (IOException e) {
+				catch (Exception e) {
 					throw new AttachementReadingException(
 							"Could not read attached mail data (Doc_Id: " + runDetails.getDocId()
 									+ ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
@@ -792,7 +799,7 @@ public class ExtractBlob {
 		try(ByteArrayInputStream is = new ByteArrayInputStream(attachedData.getValue())){
 			save(is, file);
 		}
-		catch (IOException e) {
+		catch (Exception e) {
 			throw new FileSaveException(e);
 		}
 	}
@@ -801,33 +808,27 @@ public class ExtractBlob {
 		try {
 			save(docData.getBinaryStream(), file);
 		}
-		catch (SQLException e) {
+		catch (Exception e) {
 			throw new FileSaveException(e);
 		}
 	}
 
-	private void save(InputStream inputStream, File file) throws FileSaveException {
+	private void save(InputStream inputStream, File file) throws Exception {
 		if(isTestMode())
 			return;
 
 		File folder = file.getParentFile();
 			
-		try {
-			folder.mkdirs();
+		folder.mkdirs();
 
-			try(OutputStream outputStream = new FileOutputStream(file)){
-				
-		        int bytesRead = -1;
-		        byte[] buffer = new byte[1024];
-		        
-		        while ((bytesRead = inputStream.read(buffer)) != -1) {
-		            outputStream.write(buffer, 0, bytesRead);
-		        }
-			}
-		}
-		catch(Exception e) {
-			file.getParentFile().delete();
-			throw new FileSaveException(e);
+		try(OutputStream outputStream = new FileOutputStream(file)){
+			
+	        int bytesRead = -1;
+	        byte[] buffer = new byte[1024];
+	        
+	        while ((bytesRead = inputStream.read(buffer)) != -1) {
+	            outputStream.write(buffer, 0, bytesRead);
+	        }
 		}
 	}
 
