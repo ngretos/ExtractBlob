@@ -26,9 +26,9 @@ class ExtractionRunDetails {
 	private List<File> attachments = new ArrayList<File>();
 
 	
-	public ExtractionRunDetails(ExtractionRun extractionLog, String docId, String relType, String relID, String cId, String accountNo, String actionId, File file) {
+	public ExtractionRunDetails(ExtractionRun extractionRun, String docId, String relType, String relID, String cId, String accountNo, String actionId, File file) {
 		super();
-		this.extractionRun	= extractionLog;
+		this.extractionRun	= extractionRun;
 		this.docId			= docId;
 		this.relType		= relType;
 		this.relId			= relID;
@@ -152,5 +152,9 @@ class ExtractionRunDetails {
 
 	public void setFailureReason(String failureReason) {
 		this.failureReason = failureReason;
+	}
+
+	public int getRunId() {
+		return this.extractionRun.getId();
 	}
 }

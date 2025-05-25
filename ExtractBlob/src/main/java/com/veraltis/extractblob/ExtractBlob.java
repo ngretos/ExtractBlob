@@ -428,8 +428,6 @@ public class ExtractBlob {
 			excludeMimeTypes = Arrays.asList(StringUtils.split(getConfig(CONFIG_MIME_TYPES_TO_EXCLUDE), ','));
 			messageFileExtensions = Arrays.asList(StringUtils.split(getConfig(CONFIG_MESSAGE_FILE_EXTENSIONS), ','));
 			
-			this.extractionRun.setRunFor(params.get(PARAM_NAME_TIME_TO_RUN));
-			
 			this.endTime = calculateEndTime();
 		}
 		catch (IOException | SQLException | DateTimeException | ArithmeticException e) {
@@ -645,8 +643,7 @@ public class ExtractBlob {
 				}
 				finally {
 					file = new File(targetFolder, filename);
-					runDetails = 
-							getRunDetails(row.getDocId(), row.getRelType(), row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId(), file);
+					runDetails = getRunDetails(row, file);
 				}
 
 				save(row.getDocData(), file);
@@ -665,7 +662,7 @@ public class ExtractBlob {
 			}
 			catch (AttachementReadingException | FileSaveException  e) {
 				logFileMsg += "Failed to extract ";
-				runDetails.markAsFailed(e.getMessage());
+				runDetails.markAsFailed(!e.getMessage().isBlank() ? e.getMessage() : e.getCause().getMessage());
 				deleteFile(file, true);
 			}
 			finally {
@@ -788,7 +785,7 @@ public class ExtractBlob {
 				      .collect(Collectors.toSet()).size();
 				}
 			catch(IOException e) {
-				throw new FileSaveException(e);
+				throw new FileSaveException("Could not get distinctive number", e);
 			}
 		}
 		
@@ -899,9 +896,9 @@ public class ExtractBlob {
 		return this.dbAgents.get(databaseAgentName);
 	}
 
-	private ExtractionRunDetails getRunDetails(String docId, String relType, String relID, String cId, String accountNo,
-			String actionId, File file) {
-		return this.extractionRun.newDetails(docId, relType, relID, cId, accountNo, actionId, file);
+	private ExtractionRunDetails getRunDetails(DocRow row, File file) {
+		return this.extractionRun.newDetails(row.getDocId(), row.getRelType(), row.getRelId(), 
+				row.getCId(), row.getAccountNo(), row.getActionId(), file);
 	}
 	
 	private void saveInitialRunRow() throws SQLException {
@@ -952,16 +949,16 @@ public class ExtractBlob {
 			try {
 				conn.setAutoCommit(false);
 
-				for (ExtractionRunDetails row : this.extractionRun.getDetails()) {
+				for (ExtractionRunDetails details : this.extractionRun.getDetails()) {
 
-					executeSavePacketRowSQL(stmnt, this.extractionRun.getId(), row.getId(), row.getRelType(),
-							row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId(),
-							row.getFile().getPath(), row.getStatus(), row.getFailureReason());
+					executeSavePacketRowSQL(stmnt, details.getRunId(), details.getDocId(), details.getRelType(),
+							details.getRelId(), details.getCId(), details.getAccountNo(), details.getActionId(),
+							details.getFile().getPath(), details.getStatus(), details.getFailureReason());
 
-					for (File file : row.getAttachments()) {
-						executeSavePacketRowSQL(stmnt, this.extractionRun.getId(), row.getId(), row.getRelType(),
-								row.getRelId(), row.getCId(), row.getAccountNo(), row.getActionId(), file.getPath(),
-								row.getStatus(), row.getFailureReason());
+					for (File file : details.getAttachments()) {
+						executeSavePacketRowSQL(stmnt, details.getRunId(), details.getDocId(), details.getRelType(),
+								details.getRelId(), details.getCId(), details.getAccountNo(), details.getActionId(), file.getPath(),
+								details.getStatus(), details.getFailureReason());
 					}
 
 					conn.commit();
@@ -997,11 +994,11 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void executeSavePacketRowSQL(PreparedStatement stmnt, int id, String docId, String relType, String relId, 
+	private void executeSavePacketRowSQL(PreparedStatement stmnt, int runId, String docId, String relType, String relId, 
 											String cId, String accountNo, String actionId, String path, String status, String reason) throws SQLException  {
 		
 		int i = 1;
-		stmnt.setInt(	i++, id);
+		stmnt.setInt(	i++, runId);
 		stmnt.setString(i++, docId);
 		stmnt.setString(i++, relType);
 		stmnt.setString(i++, relId);

@@ -18,7 +18,7 @@
 		</Console>
 		<RollingFile name="GeneralFileAppender"
 			fileName="${baseDir}/${app}.log"
-			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss-mmm}.log">
 			<PatternLayout 	pattern="%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg%n%throwable"/>
 			<Policies>
 				<OnStartupTriggeringPolicy />
@@ -30,7 +30,7 @@
 		</Console>
 		<RollingFile name="NewLineFileAppender"
 			fileName="${baseDir}/${app}.log"
-			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss-mmm}.log">
 			<PatternLayout pattern="%n"/>
 			<Policies>
 				<OnStartupTriggeringPolicy />
@@ -52,7 +52,7 @@
 		</Console>
 		<RollingFile name="FileAppenderStart"
 			fileName="${baseDir}/${app}.log"
-			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss-mmm}.log">
 			<PatternLayout pattern="%d{d-M-yyyy HH:mm:ss.mmm} ExtractBlob %-5level - %msg"/>
 			<Policies>
 				<OnStartupTriggeringPolicy />
@@ -60,7 +60,7 @@
 		</RollingFile>
 		<RollingFile name="FileAppenderDocNo"
 			fileName="${baseDir}/${app}.log"
-			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss-mmm}.log">
 			<PatternLayout pattern="%msg"/>
 			<Policies>
 				<OnStartupTriggeringPolicy />
@@ -68,7 +68,7 @@
 		</RollingFile>
 		<RollingFile name="FileAppenderEnd"
 			fileName="${baseDir}/${app}.log"
-			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss}.log">
+			filePattern="${baseDir}/${app}.%d{d-M-yyyy HH-mm-ss-mmm}.log">
 			<PatternLayout pattern="%msg%n"/>
 			<Policies>
 				<OnStartupTriggeringPolicy />
