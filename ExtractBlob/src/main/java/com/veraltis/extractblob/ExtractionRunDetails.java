@@ -21,12 +21,12 @@ class ExtractionRunDetails {
 	private String status = STATUS_SAVED;
 	private String failureReason;
 
-	private File file;
+	private File mainFile;
 	
 	private List<File> attachments = new ArrayList<File>();
 
 	
-	public ExtractionRunDetails(ExtractionRun extractionRun, String docId, String relType, String relID, String cId, String accountNo, String actionId, File file) {
+	public ExtractionRunDetails(ExtractionRun extractionRun, String docId, String relType, String relID, String cId, String accountNo, String actionId) {
 		super();
 		this.extractionRun	= extractionRun;
 		this.docId			= docId;
@@ -35,7 +35,6 @@ class ExtractionRunDetails {
 		this.cId			= cId;
 		this.accountNo		= accountNo;
 		this.actionId		= actionId;
-		this.file			= file;
 	}
 	
 	public String getId() {
@@ -69,6 +68,13 @@ class ExtractionRunDetails {
 	}
 	public void setAttachments(List<File> files) {
 		this.attachments = files;
+	}
+	public void addMainFile(File file) {
+		if(this.mainFile != null)
+			return;
+
+		this.mainFile = file;
+		this.extractionRun.setDocumentsExtracted(this.extractionRun.getDocumentsExtracted() + 1);
 	}
 	public boolean addAttachment(File file) {
 		boolean added = this.attachments.add(file);
@@ -130,12 +136,8 @@ class ExtractionRunDetails {
 		this.status = status;
 	}
 
-	public File getFile() {
-		return this.file;
-	}
-
-	public void setFile(File file) {
-		this.file = file;
+	public File getMainFile() {
+		return this.mainFile;
 	}
 
 	public boolean isSaved() {

@@ -1,6 +1,6 @@
 package com.veraltis.extractblob.exceptions;
 
-public class FileSaveException extends Exception {
+public class FileSaveException extends BasicException {
 
 	/**
 	 * 
@@ -18,11 +18,10 @@ public class FileSaveException extends Exception {
 	}
 
 	public FileSaveException(Throwable e) {
-		this(message, e);
+		super(e);
 	}
 
 	public FileSaveException(String msg, Throwable e) {
-		super(msg);
-		super.initCause(e);
+		super(msg, e);
 	}
 }

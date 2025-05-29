@@ -1,13 +1,12 @@
 package com.veraltis.extractblob;
 
-import java.io.File;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 
 public class ExtractionRun {
 
-	public static final String	STATUS_SUCCESS				= "S";
+	public static final String	STATUS_SUCCESS				= "s";
 	public static final String	STATUS_FAILED				= "f";
 	public static final String	STATUS_SUCCESS_WITH_ERRORS	= "ce";
 
@@ -37,12 +36,11 @@ public class ExtractionRun {
 		this.runFor				= runFor;
 	}
 
-	public ExtractionRunDetails newDetails(String docId, String relType, String relID, String cId, String accountNo, String actionId, File file) {
-		ExtractionRunDetails row = new ExtractionRunDetails(this, docId, relType, relID, cId, accountNo, actionId, file);
+	public ExtractionRunDetails newDetails(String docId, String relType, String relID, String cId, String accountNo, String actionId) {
+		ExtractionRunDetails row = new ExtractionRunDetails(this, docId, relType, relID, cId, accountNo, actionId);
 		
 		this.details.add(row);
 		this.rowsProcessed++;
-		this.documentsExtracted++;
 		
 		return row;
 	}

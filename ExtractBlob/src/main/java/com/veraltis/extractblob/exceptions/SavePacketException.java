@@ -1,6 +1,6 @@
 package com.veraltis.extractblob.exceptions;
 
-public class SavePacketException extends Exception {
+public class SavePacketException extends BasicException {
 
 	/**
 	 * 
@@ -18,11 +18,10 @@ public class SavePacketException extends Exception {
 	}
 
 	public SavePacketException(Throwable e) {
-		this(message, e);
+		super(e);
 	}
 
 	public SavePacketException(String msg, Throwable e) {
-		super(msg);
-		super.initCause(e);
+		super(msg, e);
 	}
 }

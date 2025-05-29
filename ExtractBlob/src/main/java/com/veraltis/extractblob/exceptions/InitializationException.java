@@ -1,6 +1,6 @@
 package com.veraltis.extractblob.exceptions;
 
-public class InitializationException extends Exception {
+public class InitializationException extends BasicException {
 
 	/**
 	 * 
@@ -17,11 +17,10 @@ public class InitializationException extends Exception {
 		super(msg);
 	}
 	public InitializationException(Throwable e) {
-		this(message, e);
+		super(e);
 	}
 
 	public InitializationException(String msg, Throwable e) {
-		super(msg);
-		super.initCause(e);
+		super(msg, e);
 	}
 }

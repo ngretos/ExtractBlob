@@ -1,6 +1,6 @@
 package com.veraltis.extractblob.exceptions;
 
-public class RetrievingDocsException extends Exception {
+public class RetrievingDocsException extends BasicException {
 
 	/**
 	 * 
@@ -18,11 +18,10 @@ public class RetrievingDocsException extends Exception {
 	}
 
 	public RetrievingDocsException(Throwable e) {
-		this(message, e);
+		super(e);
 	}
 
 	public RetrievingDocsException(String msg, Throwable e) {
-		super(msg);
-		super.initCause(e);
+		super(msg, e);
 	}
 }

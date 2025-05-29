@@ -1,6 +1,6 @@
 package com.veraltis.extractblob.exceptions;
 
-public class SaveRunException extends Exception {
+public class SaveRunException extends BasicException {
 
 	/**
 	 * 
@@ -18,11 +18,10 @@ public class SaveRunException extends Exception {
 	}
 
 	public SaveRunException(Throwable e) {
-		this(message, e);
+		super(e);
 	}
 
 	public SaveRunException(String msg, Throwable e) {
-		super(msg);
-		super.initCause(e);
+		super(msg, e);
 	}
 }

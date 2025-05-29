@@ -1,6 +1,6 @@
 package com.veraltis.extractblob.exceptions;
 
-public class AttachementReadingException extends Exception {
+public class AttachementReadingException extends BasicException {
 
 	/**
 	 * 
@@ -9,16 +9,19 @@ public class AttachementReadingException extends Exception {
 
 	private static final String message = "Could not save attachment.";
 
+	public AttachementReadingException() {
+		super(message);
+	}
+
 	public AttachementReadingException(String msg) {
-		super();
+		super(msg);
 	}
 
 	public AttachementReadingException(Throwable e) {
-		this(message, e);
+		super(e);
 	}
 
 	public AttachementReadingException(String msg, Throwable e) {
-		super(msg);
-		super.initCause(e);
+		super(msg, e);
 	}
 }

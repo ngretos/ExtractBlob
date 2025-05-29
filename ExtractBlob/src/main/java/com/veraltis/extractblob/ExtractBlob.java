@@ -41,6 +41,7 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.hsmf.MAPIMessage;
 import org.apache.poi.hsmf.datatypes.AttachmentChunks;
 import org.apache.poi.hsmf.datatypes.ByteChunk;
+import org.apache.poi.hsmf.exceptions.ChunkNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -207,7 +208,6 @@ public class ExtractBlob {
 	
 	private List<String> excludeMimeTypes;
 	private List<String> messageFileExtensions;
-	
 	private ExtractionRun extractionRun;
 	private String extractionFolder;
 
@@ -425,8 +425,8 @@ public class ExtractBlob {
 							"Run_")
 					+ replaceUnacceptableCharacters(this.extractionRun.getRunDate().toString());
 
-			excludeMimeTypes = Arrays.asList(StringUtils.split(getConfig(CONFIG_MIME_TYPES_TO_EXCLUDE), ','));
 			messageFileExtensions = Arrays.asList(StringUtils.split(getConfig(CONFIG_MESSAGE_FILE_EXTENSIONS), ','));
+			excludeMimeTypes = Arrays.asList(StringUtils.split(getConfig(CONFIG_MIME_TYPES_TO_EXCLUDE), ','));
 			
 			this.endTime = calculateEndTime();
 		}
@@ -505,7 +505,7 @@ public class ExtractBlob {
 					break;
 				}
 				else {
-					msg += " Rows fetched: " + docRows.size();
+					msg += " Rows fetched: " + docRows.size() + ". ";
 					extract(docRows, msg);
 					finalizePacketProcessing();
 				}
@@ -559,7 +559,7 @@ public class ExtractBlob {
 
 		this.extractionRun =
 				new ExtractionRun(Timestamp.valueOf(this.startTime), shouldInitialize(),
-						extractAttachemts(), rowsToBeProcessed, packetSize, 
+						mustExtractAttachemts(), rowsToBeProcessed, packetSize, 
 						getParam(PARAM_NAME_TIME_TO_RUN));
 
 		try {
@@ -611,13 +611,12 @@ public class ExtractBlob {
 		return sql;
 	}
 
-	private void extract(List<DocRow> rows, String logMsgPrefix){
+	private void extract(List<DocRow> rows, String logPrefix){
 		Collections.sort(rows, Comparator.comparing(DocRow :: getCreationDate));
 
 		info("Extracting...");
 		logNewLine();
 
-		String targetFolder, filename;
 		int i = 0;
 
 		for(DocRow row: rows) {
@@ -627,108 +626,135 @@ public class ExtractBlob {
 
 			i++;
 
-			targetFolder = constructTargetFolderPath(row);
-			filename = constructFileName(row);
-			
-			String logFileMsg = logMsgPrefix + ". ";
-			ExtractionRunDetails runDetails = null;
-			File file = null;
+			ExtractionRunDetails runDetails = getRunDetails(row);
 			
 			try {
-				try {
-					if(isMessageFile(row.getFileName()) && extractAttachemts()) {
-						targetFolder = getDistinctivePath(targetFolder, constructFileName(row));
-						filename = row.getFileName();
-					}
+				if(!isMessageFile(row.getFileName()) || !mustExtractAttachemts()) {
+					extractNonMail(row, runDetails, i, logPrefix);
 				}
-				finally {
-					file = new File(targetFolder, filename);
-					runDetails = getRunDetails(row, file);
-				}
-
-				save(row.getDocData(), file);
-
-				if(isMessageFile(row.getFileName()) && extractAttachemts()) {
-					try {
-						extractAndSaveAttachments(row.getDocData(), targetFolder, runDetails, 1);
-					}
-					catch (AttachementReadingException | FileSaveException e) {
-						deleteFolder(file.getParentFile().toPath());
-						throw e;
-					}
-				}
-
-				logFileMsg += "Extracted "; 
+				else
+					extractMail(row, runDetails, i, logPrefix);
 			}
 			catch (AttachementReadingException | FileSaveException  e) {
-				logFileMsg += "Failed to extract ";
-				runDetails.markAsFailed(!e.getMessage().isBlank() ? e.getMessage() : e.getCause().getMessage());
-				deleteFile(file, true);
+				runDetails.markAsFailed(e.getExtendedMessage());
 			}
 			finally {
 				this.extractionRun.setProcessedUpTo(row.getCreationDate());
-				logFile(logFileMsg + "document", i, row.getFileName() + 
-						 " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())),
-						 !runDetails.isSaved());
 			}
 		}
 	}
 
-	private void extractAndSaveAttachments(Blob docData, String targetFolder, ExtractionRunDetails runDetails, int identation) throws AttachementReadingException, FileSaveException {
-		try(MAPIMessage msg = new MAPIMessage(docData.getBinaryStream())){
-			extractAndSaveAttachments(msg, targetFolder, runDetails, 1);
+	private void extractNonMail(DocRow row, ExtractionRunDetails runDetails, int docNo, String logPrefix) throws FileSaveException {
+		String targetFolder = constructTargetFolderPath(row),
+				filename = constructFileName(row);
+		File file = new File(targetFolder, filename);
+
+		try{
+			logExtractionInfo(logPrefix + "Extracting document", docNo,
+					row.getFileName() + " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())),
+					false);
+			save(row.getDocData(), file);
 		}
-		catch (SQLException e) {
-			throw new AttachementReadingException("Could not access blob data (Doc_Id: " + runDetails.getDocId() + ".", e);
+		catch (FileSaveException e) {
+			warn("Failed to extract document (Cause: " + e.getExtendedMessage() + ").");
+			deleteFile(file, true);
+			throw e;
 		}
-		catch (IOException e) {
-			throw new AttachementReadingException("Could not read blob data (Doc_Id: " + runDetails.getDocId() + ".", e);
+		finally {
+			runDetails.addMainFile(file);
 		}
 	}
 	
-	private void extractAndSaveAttachments(MAPIMessage msg, String targetFolder, ExtractionRunDetails runDetails, int identation) throws FileSaveException, AttachementReadingException{
+	private void extractMail(DocRow row, ExtractionRunDetails runDetails, int docNo, String logPrefix) throws AttachementReadingException, FileSaveException {
+		File mailFolder = 
+				new File(getDistinctivePath(constructTargetFolderPath(row), constructFileName(row)));
+
+		try {
+			try(MAPIMessage msg = new MAPIMessage(row.getDocData().getBinaryStream())){
+				logExtractionInfo(logPrefix + "Extracting document", docNo,
+						row.getFileName() + " to " + Paths.get(this.extractionFolder).relativize(Paths.get(mailFolder.getPath())),
+						false);
+				extractMail(msg, mailFolder, runDetails, 1);
+			}
+			catch (SQLException | IOException e) {
+				throw new AttachementReadingException(e);
+			}
+		}
+		catch (AttachementReadingException | FileSaveException e) {
+			warn(e.getExtendedMessage());
+			logExtractionInfo("Failed to extract document", docNo, ".", true);
+			deleteFolder(mailFolder.toPath());
+			throw e;
+		}
+		finally {
+			runDetails.addMainFile(mailFolder);
+		}
+	}
+	
+	private void extractMail(MAPIMessage msg, File targetFolder, ExtractionRunDetails runDetails, int identation) throws FileSaveException, AttachementReadingException{
 		String identationStr = "\t".repeat(identation);
 		int  attachemtNo = 0;
 		
-		AttachmentChunks[] attachedFiles = msg.getAttachmentFiles();
+		// save body
+		File file = new File(targetFolder, "body.txt");
+		try {
+			info(identationStr + "Extracting mail body." + " to "
+					+ Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())));
+			save(msg.getTextBody(), file);
+		} 
+		catch (ChunkNotFoundException e) {
+			info(identationStr + "No mail body found.");
+		}
 		
-		for(AttachmentChunks chunks : attachedFiles) {
-					
-			if(chunks.getAttachMimeTag() != null && excludeMimeTypes.contains(chunks.getAttachMimeTag().getValue()) && 
-					chunks.getAttachFileName().getValue().startsWith("image00"))
-				continue;
-			
-			if(chunks.getAttachData() == null)
-				continue;
+		// save attachments
+		AttachmentChunks[] attachedFiles = msg.getAttachmentFiles();
+		String attachmentfilename = null;
 
-			String filename = chunks.getAttachDisplayName() != null ? chunks.getAttachDisplayName().toString() : chunks.getAttachFileName().toString();
+		try {
+			for(AttachmentChunks chunks : attachedFiles) {
+				attachemtNo++;
+				
+				if(chunks.getAttachMimeTag() != null && excludeMimeTypes.contains(chunks.getAttachMimeTag().getValue()) && 
+						chunks.getAttachFileName().getValue().startsWith("image00"))
+					continue;
 			
-			if(filename == null)
-				filename = "attachment";
-			
-			File file = new File(targetFolder, getDistinctiveFileName(targetFolder, filename));
-			try {
-				save(chunks.getAttachData(), file);
-				runDetails.addAttachment(file);
+				attachmentfilename = chunks.getAttachDisplayName() != null ? chunks.getAttachDisplayName().toString() : chunks.getAttachFileName().toString();
+				
+				if(attachmentfilename == null)
+					attachmentfilename = "attachment";
 
-				logFile(identationStr + "Extracted attachment", ++attachemtNo, filename
-						+ " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())), !runDetails.isSaved());
-			}
-			catch (FileSaveException e) {
-				throw new FileSaveException("Could not save attachment (Doc_Id: " + runDetails.getDocId()
-						+ ", Attachment name: " + filename + ").", e);
-			}
+				attachmentfilename = replaceUnacceptableCharacters(attachmentfilename);
+				
+				if(chunks.isEmbeddedMessage()) {
+					File attachedMailFolder = new File(getDistinctivePath(targetFolder.toPath(), attachmentfilename));
 
-			if(isMessageFile(chunks)) {
-				try(MAPIMessage attachedMsg = new MAPIMessage(new ByteArrayInputStream(chunks.getAttachData().getValue()))){
-					extractAndSaveAttachments(attachedMsg, getDistinctivePath(targetFolder, chunks.getAttachDisplayName().toString()), runDetails, identation + 1);
+					logExtractionInfo(identationStr + "Extracting attachment", attachemtNo, attachmentfilename
+							+ " to " + Paths.get(this.extractionFolder).relativize(attachedMailFolder.toPath()), false);
+
+					extractMail(chunks.getEmbeddedMessage(), attachedMailFolder, runDetails, ++identation);
+					runDetails.addAttachment(attachedMailFolder);
 				}
-				catch (Exception e) {
-					throw new AttachementReadingException(
-							"Could not read attached mail data (Doc_Id: " + runDetails.getDocId()
-									+ ", Attachment name: " + chunks.getAttachDisplayName().toString() + ").", e);
+				else {
+					if (chunks.getAttachData() == null) {
+						throw new AttachementReadingException(identationStr + "Data is null for the attachment " + attachemtNo
+								+ " (, filename: " + attachmentfilename + ").");
+					}
+					file = new File(targetFolder, getDistinctiveFileName(targetFolder.toPath(), attachmentfilename));
+
+					logExtractionInfo(identationStr + "Extracting attachment", attachemtNo, attachmentfilename
+							+ " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())), false);
+
+					save(chunks.getAttachData(), file);
+
+					runDetails.addAttachment(file);
 				}
 			}
+		}
+		catch(IOException e) {
+			throw new AttachementReadingException(identationStr + "Could not read attached mail data (Attachment name: " + attachmentfilename + ")", e);
+		}
+		catch (FileSaveException e) {
+			throw new FileSaveException(identationStr + "Could not save attachment (Attachment name: " + attachmentfilename + ")", e);
 		}
 	}
 
@@ -750,16 +776,20 @@ public class ExtractBlob {
 	}
 
 	private String getDistinctivePath(String folder, String fileName) throws FileSaveException {
-		return folder + "/" + fileName + getDistinctiveNumber(folder, fileName);
+		return folder + "/" + getDistinctiveFileName(Paths.get(folder), fileName);
 	}
 
-	private String getDistinctiveFileName(String folder, String fileName) throws FileSaveException{
-		String distinctiveNumberStr = getDistinctiveNumber(folder, fileName);
+	private String getDistinctivePath(Path folderPath, String fileName) throws FileSaveException {
+		return getDistinctivePath(folderPath.toString(), fileName);
+	}
+
+	private String getDistinctiveFileName(Path path, String fileName) throws FileSaveException{
+		String distinctiveNumberStr = getDistinctiveNumber(path, fileName);
 		
 		if(distinctiveNumberStr.equals(StringUtils.EMPTY))
 			return fileName;
 		
-		String[] nameParts = fileName.split("/.");
+		String[] nameParts = fileName.split("\\.");
 
 		String distinctiveName = 
 				fileName.replaceAll("." + nameParts[nameParts.length - 1], distinctiveNumberStr + "." + nameParts[nameParts.length - 1]);
@@ -772,13 +802,12 @@ public class ExtractBlob {
 			
 		return distinctiveName;
 	}
-
-	private String getDistinctiveNumber(String folder, String fileName) throws FileSaveException{
+	
+	private String getDistinctiveNumber(Path folderPath, String fileName) throws FileSaveException{
 		int number = 0;
-		Path path = Paths.get(folder);
 		
-		if(Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
-			try (Stream<Path> stream = Files.list(Paths.get(folder))) {
+		if(Files.exists(folderPath, LinkOption.NOFOLLOW_LINKS)) {
+			try (Stream<Path> stream = Files.list(folderPath)) {
 			    
 				number = stream
 				      .filter(file -> file.getFileName().toString().startsWith(fileName))
@@ -801,6 +830,15 @@ public class ExtractBlob {
 		}
 	}
 
+	private void save(String mailBody, File file) throws FileSaveException {
+		try(ByteArrayInputStream is = new ByteArrayInputStream(mailBody.getBytes())){
+			save(is, file);
+		}
+		catch (Exception e) {
+			throw new FileSaveException(e);
+		}
+	}
+
 	private void save(Blob docData, File file) throws FileSaveException {
 		try {
 			save(docData.getBinaryStream(), file);
@@ -810,7 +848,7 @@ public class ExtractBlob {
 		}
 	}
 
-	private void save(InputStream inputStream, File file) throws Exception {
+	private void save(InputStream inputStream, File file) throws FileNotFoundException, IOException {
 		if(isTestMode())
 			return;
 
@@ -836,12 +874,6 @@ public class ExtractBlob {
 				return true;
 		}
 		return false;
-	}
-	
-	private boolean isMessageFile(AttachmentChunks chunks)
-	{
-		return chunks.getAttachExtension() != null && 
-				this.messageFileExtensions.contains(chunks.getAttachExtension().getValue());
 	}
 	
 	private String getConfig(String propertyName) {
@@ -896,9 +928,9 @@ public class ExtractBlob {
 		return this.dbAgents.get(databaseAgentName);
 	}
 
-	private ExtractionRunDetails getRunDetails(DocRow row, File file) {
+	private ExtractionRunDetails getRunDetails(DocRow row) {
 		return this.extractionRun.newDetails(row.getDocId(), row.getRelType(), row.getRelId(), 
-				row.getCId(), row.getAccountNo(), row.getActionId(), file);
+				row.getCId(), row.getAccountNo(), row.getActionId());
 	}
 	
 	private void saveInitialRunRow() throws SQLException {
@@ -946,14 +978,14 @@ public class ExtractBlob {
 		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection();
 				PreparedStatement stmnt = conn.prepareStatement(sql);) {
 
-			try {
-				conn.setAutoCommit(false);
+			conn.setAutoCommit(false);
 
+			try {
 				for (ExtractionRunDetails details : this.extractionRun.getDetails()) {
 
 					executeSavePacketRowSQL(stmnt, details.getRunId(), details.getDocId(), details.getRelType(),
 							details.getRelId(), details.getCId(), details.getAccountNo(), details.getActionId(),
-							details.getFile().getPath(), details.getStatus(), details.getFailureReason());
+							details.getMainFile().getPath(), details.getStatus(), details.getFailureReason());
 
 					for (File file : details.getAttachments()) {
 						executeSavePacketRowSQL(stmnt, details.getRunId(), details.getDocId(), details.getRelType(),
@@ -962,7 +994,6 @@ public class ExtractBlob {
 					}
 
 					conn.commit();
-					conn.setAutoCommit(true);
 				}
 			}
 			catch (SQLException e) {
@@ -1082,6 +1113,7 @@ public class ExtractBlob {
 	    }
 	    catch (IOException e) {
 		}
+		deleteFile(path, true);
 	}
 
 	private void initializeRunTables() throws SQLException {
@@ -1134,7 +1166,7 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void logFile(String msgStart, int docNo, String msgEnd, boolean asWarning) {
+	private void logExtractionInfo(String msgStart, int docNo, String msgEnd, boolean asWarning) {
 		String docNoStr = " #" + docNo + StringUtils.SPACE;
 		
 		if(asWarning) {
@@ -1189,7 +1221,7 @@ public class ExtractBlob {
 		return Boolean.parseBoolean(getParam(PARAM_NAME_TEST_MODE)); 
 	}
 	
-	private boolean extractAttachemts() {
+	private boolean mustExtractAttachemts() {
 		return Boolean.parseBoolean(getParam(PARAM_NAME_EXTRACT_ATTACHMENTS)); 
 	}
 	
@@ -1197,7 +1229,7 @@ public class ExtractBlob {
 		info("Deleting packet's files...");
 		for(ExtractionRunDetails detail : this.extractionRun.getDetails()) {
 			detail.markAsFailed(reason);
-			deleteFile(detail.getFile(), true);
+			deleteFile(detail.getMainFile(), true);
 			for(File file : detail.getAttachments()) {
 				deleteFile(file, true);
 			}
@@ -1218,6 +1250,10 @@ public class ExtractBlob {
 			parent.delete();
 			parent = parent.getParentFile();
 		}
+	}
+	
+	private void deleteFile(Path path, boolean deleteParentDirs) {
+		deleteFile(new File(path.toUri()), deleteParentDirs);
 	}
 	
 	private boolean stopExecution() {
