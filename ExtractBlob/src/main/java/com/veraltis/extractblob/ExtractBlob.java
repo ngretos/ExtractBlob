@@ -436,7 +436,7 @@ public class ExtractBlob {
 	}
 
 	private String replaceUnacceptableCharacters(String filename) {
-		return replaceUnacceptableCharacters(filename, "_");
+		return replaceUnacceptableCharacters(filename, "_").trim();
 	}
 
 	private String replaceUnacceptableCharacters(String fileName, String replacement) {
@@ -772,7 +772,7 @@ public class ExtractBlob {
 	}
 
 	private String constructFileName(DocRow row) {
-		return row.getDocId() + "_" + row.getFileName();
+		return (row.getDocId() + "_" + row.getFileName()).trim();
 	}
 
 	private String getDistinctivePath(String folder, String fileName) throws FileSaveException {
@@ -800,7 +800,7 @@ public class ExtractBlob {
 		else
 			distinctiveName += fileName + StringUtils.SPACE + distinctiveNumberStr;
 			
-		return distinctiveName;
+		return distinctiveName.trim();
 	}
 	
 	private String getDistinctiveNumber(Path folderPath, String fileName) throws FileSaveException{
