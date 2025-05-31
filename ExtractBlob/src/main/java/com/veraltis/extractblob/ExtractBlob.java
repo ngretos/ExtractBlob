@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -69,7 +70,7 @@ public class ExtractBlob {
 	
 	private List<String> paramNames = null;
 
-	private final String	UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX = "[<>:\\/|?*]";
+	private final String UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX = "[<>:\\/|?*]";
 
 	private final String CONFIG_FILE_NAME = "config.properties";
 
@@ -660,6 +661,9 @@ public class ExtractBlob {
 			deleteFile(file, true);
 			throw e;
 		}
+		catch (InvalidPathException e) {
+			throw new FileSaveException("Path is invalid", e);
+		}
 		finally {
 			runDetails.addMainFile(file);
 		}
@@ -755,6 +759,9 @@ public class ExtractBlob {
 		}
 		catch (FileSaveException e) {
 			throw new FileSaveException(identationStr + "Could not save attachment (Attachment name: " + attachmentfilename + ")", e);
+		}
+		catch (InvalidPathException e) {
+			throw new FileSaveException(identationStr + "Path is invalid (Attachment name: " + attachmentfilename + ")", e);
 		}
 	}
 
