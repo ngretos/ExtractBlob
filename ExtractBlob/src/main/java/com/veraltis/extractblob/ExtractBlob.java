@@ -3,41 +3,9 @@
  */
 package com.veraltis.extractblob;
 
-import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.nio.file.Files;
-import java.nio.file.InvalidPathException;
-import java.nio.file.LinkOption;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.sql.Blob;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Timestamp;
-import java.sql.Types;
-import java.text.SimpleDateFormat;
-import java.time.DateTimeException;
-import java.time.Duration;
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.Hashtable;
-import java.util.List;
-import java.util.Properties;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
+import com.veraltis.extractblob.db.DatabaseAgent;
+import com.veraltis.extractblob.exceptions.*;
+import com.veraltis.extractblob.util.PropertiesUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.hsmf.MAPIMessage;
 import org.apache.poi.hsmf.datatypes.AttachmentChunks;
@@ -46,18 +14,22 @@ import org.apache.poi.hsmf.exceptions.ChunkNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import com.veraltis.extractblob.db.DatabaseAgent;
-import com.veraltis.extractblob.exceptions.AttachementReadingException;
-import com.veraltis.extractblob.exceptions.FileSaveException;
-import com.veraltis.extractblob.exceptions.InitializationException;
-import com.veraltis.extractblob.exceptions.RetrievingDocsException;
-import com.veraltis.extractblob.exceptions.SavePacketException;
-import com.veraltis.extractblob.exceptions.SaveRunException;
-import com.veraltis.extractblob.util.PropertiesUtils;
+import java.io.*;
+import java.nio.file.*;
+import java.sql.*;
+import java.text.SimpleDateFormat;
+import java.time.DateTimeException;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 
  */
+@SuppressWarnings("FieldCanBeLocal")
 public class ExtractBlob {
 
 	private final String	PARAM_OUTPUT_DIR				= "d";
@@ -70,7 +42,8 @@ public class ExtractBlob {
 	
 	private List<String> paramNames = null;
 
-	private final String UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX = "[<>:\\/|?*]";
+	@SuppressWarnings("RegExpRedundantEscape")
+    private final String UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX = "[<>:\\/|?*]";
 
 	private final String CONFIG_FILE_NAME = "config.properties";
 
@@ -190,11 +163,11 @@ public class ExtractBlob {
 			+ "		CONSTRAINT {tableName}_{refTableName}_FK FOREIGN KEY ({refTableName}_Id) REFERENCES dbo.{refTableName}(Id) ON DELETE CASCADE"
 			+ "	) ON [PRIMARY];";
 
-	private final String	SQL_TABLE_NAME_SUBST_VARIABLE				= "\\{tableName\\}";
-	private final String	SQL_REF_TABLE_NAME_SUBST_VARIABLE			= "\\{refTableName\\}";
-	private final String	SQL_ROWS_TO_FETCH_SUBST_VARIABLE			= "\\{rowsToFetch\\}";
-	private final String	SQL_ADDITIONAL_FILTER_NAME_SUBST_VARIABLE	= "\\{additionalFilter\\}";
-	private final String	SQL_ORDER_BY_NAME_SUBST_VARIABLE			= "\\{orderBy\\}";
+	private final String	SQL_TABLE_NAME_SUBST_VARIABLE				= "\\{tableName}";
+	private final String	SQL_REF_TABLE_NAME_SUBST_VARIABLE			= "\\{refTableName}";
+	private final String	SQL_ROWS_TO_FETCH_SUBST_VARIABLE			= "\\{rowsToFetch}";
+	private final String	SQL_ADDITIONAL_FILTER_NAME_SUBST_VARIABLE	= "\\{additionalFilter}";
+	private final String	SQL_ORDER_BY_NAME_SUBST_VARIABLE			= "\\{orderBy}";
 
 	private final String SQL_DROP_TABLE = "IF OBJECT_ID (N'dbo.{tableName}', N'U') IS NOT NULL drop table {tableName};";
 
@@ -212,13 +185,13 @@ public class ExtractBlob {
 	private ExtractionRun extractionRun;
 	private String extractionFolder;
 
-	private Logger	logger			= LoggerFactory.getLogger("General");
-	private Logger	newLineLogger	= LoggerFactory.getLogger("NewLine");
-	private Logger	docloggerStart	= LoggerFactory.getLogger("ConsoleLoggerStart");
-	private Logger	docloggerDocNo	= LoggerFactory.getLogger("ConsoleLoggerDocNo");
-	private Logger	docloggerEnd	= LoggerFactory.getLogger("ConsoleLoggerEnd");
+	private final Logger	logger			= LoggerFactory.getLogger("General");
+	private final Logger	newLineLogger	= LoggerFactory.getLogger("NewLine");
+	private final Logger	docloggerStart	= LoggerFactory.getLogger("ConsoleLoggerStart");
+	private final Logger	docloggerDocNo	= LoggerFactory.getLogger("ConsoleLoggerDocNo");
+	private final Logger	docloggerEnd	= LoggerFactory.getLogger("ConsoleLoggerEnd");
 
-	private LocalDateTime startTime = LocalDateTime.now();
+	private final LocalDateTime startTime = LocalDateTime.now();
 	private LocalDateTime endTime;
 	
 	private Boolean shouldInitialize = null;
@@ -234,7 +207,7 @@ public class ExtractBlob {
 	 * 		the program will stop when ever any of this conditions comes first. Defaults to 5h.
 	 * -r:  Rows to be processed (for test purposes only). Defaults to all.
 	 * -p:  The size of rows segment fetched from the database.
-			If it omitted packet size retrieve is't value from the configuration file.
+			If it is omitted packet size retrieve its value from the configuration file.
 			If neither the parameter nor the configuration value is defined an exception is thrown.
 	 * -t:  Run in test mode. No files extracted nor ExtractionRun rows produced.
 	 */
@@ -250,13 +223,13 @@ public class ExtractBlob {
 		System.out.println("\tthe program will stop when ever any of this conditions comes first. Defaults to 5h.");
 		System.out.println("-r:\tRows to be processed. Defaults to all.");
 		System.out.println("-p:\tThe size of rows segment fetched from the database.");
-		System.out.println("\tIf it omitted packet size retrieve is't value from the configuration file (currently 500.");
+		System.out.println("\tIf it omitted packet size retrieve its value from the configuration file (currently 500.");
 		System.out.println("\tIf neither the parameter nor the configuration value is defined an exception is thrown.");
 		System.out.println("-t:\tRun in test mode. No files extracted nor ExtractionRun rows produced.");
 	}
 
 	private Hashtable<String, String> parseParams(String[] args) throws InitializationException {
-		Hashtable<String, String> params = new Hashtable<String, String>(2);
+		Hashtable<String, String> params = new Hashtable<>(2);
 
 		for(String arg : args) {
 			
@@ -285,9 +258,8 @@ public class ExtractBlob {
 		catch(NumberFormatException e) {
 			throw new InitializationException("Invalid parameter [" + PARAM_NAME_ROWS_PACKET_SIZE + "].");
 		}
-		
-		if(params.get(PARAM_NAME_TIME_TO_RUN) == null)
-			params.put(PARAM_NAME_TIME_TO_RUN, "5h");
+
+        params.putIfAbsent(PARAM_NAME_TIME_TO_RUN, "5h");
 		
 		return params;
 	}
@@ -319,7 +291,7 @@ public class ExtractBlob {
 					this.PARAM_NAME_INITIALIZE, this.PARAM_NAME_ROWS_TO_BE_PROCESSED, this.PARAM_NAME_ROWS_PACKET_SIZE,
 					this.PARAM_NAME_TIME_TO_RUN, this.PARAM_NAME_TEST_MODE);
 
-			Collections.sort(this.paramNames, Comparator.comparing(String :: length).reversed());
+			this.paramNames.sort(Comparator.comparing(String::length).reversed());
 		}
 
 		return this.paramNames;
@@ -341,17 +313,7 @@ public class ExtractBlob {
 		finally {
 			closeDBAgents();
 			logNewLine();
-			String msg = "Task ";
-			
-			if(this.extractionRun != null)
-				msg += this.extractionRun.getExecutionStatusDescr() 
-				+ ". Rows processed: " + this.extractionRun.getRowsProcessed()
-				+ " (Erroneous rows: " + this.extractionRun.getErroneousRows()
-				+ "). Documents extracted: " + this.extractionRun.getDocumentsExtracted()
-				+ ". Duration: " + this.extractionRun.getDuration()
-				+ (isTestMode() ? " (Test Mode: No actual files extracted.)" : StringUtils.SPACE) + ".";
-			else
-				msg += "failed.";
+			String msg = getFinalizingMessage();
 
 			if(msg.contains("failed"))
 				error(msg);
@@ -360,6 +322,21 @@ public class ExtractBlob {
 			else 
 				info(msg); 
 		}
+	}
+
+	private String getFinalizingMessage() {
+		String msg = "Task ";
+
+		if(this.extractionRun != null)
+			msg += this.extractionRun.getExecutionStatusDescr()
+			+ ". Rows processed: " + this.extractionRun.getRowsProcessed()
+			+ " (Erroneous rows: " + this.extractionRun.getErroneousRows()
+			+ "). Documents extracted: " + this.extractionRun.getDocumentsExtracted()
+			+ ". Duration: " + this.extractionRun.getDuration()
+			+ (isTestMode() ? " (Test Mode: No actual files extracted.)" : StringUtils.SPACE) + ".";
+		else
+			msg += "failed.";
+		return msg;
 	}
 
 	private void closeDBAgents() {
@@ -373,29 +350,28 @@ public class ExtractBlob {
 		}
 	}
 
-	private String getTaskDuration(LocalDateTime startAt, LocalDateTime endtAt) {
+	private String getTaskDuration(LocalDateTime startAt, LocalDateTime endsAt) {
 		String duration = StringUtils.EMPTY;
 		
-		long hours = 0, minutes = 0, seconds = 0;
+		long hours, minutes, seconds ;
 		
-		hours = ChronoUnit.HOURS.between(startAt, endtAt);
-		minutes = ChronoUnit.MINUTES.between(startAt.plusHours(hours), endtAt);
-		seconds = ChronoUnit.SECONDS.between(startAt.plusHours(hours).plusMinutes(minutes), endtAt);
+		hours = ChronoUnit.HOURS.between(startAt, endsAt);
+		minutes = ChronoUnit.MINUTES.between(startAt.plusHours(hours), endsAt);
+		seconds = ChronoUnit.SECONDS.between(startAt.plusHours(hours).plusMinutes(minutes), endsAt);
 		
 		if(hours > 0)
-			duration += String.valueOf(hours) + "h";
+			duration += hours + "h";
 		
 		if(minutes > 0) {
 			if(!duration.isEmpty())
 				duration += StringUtils.SPACE;
-			duration += String.valueOf(minutes) + "m";
+			duration += minutes + "m";
 		}
 		
 		if(seconds > 0 || !duration.isEmpty()) {
 			if(!duration.isEmpty())
 				duration += StringUtils.SPACE;
-			duration += String.valueOf(seconds) + "s";
-			
+			duration += seconds + "s";
 		}
 
 		return duration;
@@ -440,7 +416,7 @@ public class ExtractBlob {
 		return replaceUnacceptableCharacters(filename, "_").trim();
 	}
 
-	private String replaceUnacceptableCharacters(String fileName, String replacement) {
+	private String replaceUnacceptableCharacters(String fileName, @SuppressWarnings("SameParameterValue") String replacement) {
 		return fileName.replaceAll(UNACCEPTABLE_FILE_NAME_CHARACTERS_REGEX, replacement);
 	}
 
@@ -449,7 +425,7 @@ public class ExtractBlob {
 		return this.extractionRun.getRunDate().toLocalDateTime().plus(d);
 	}
 
-	private void loadConfiguration() throws FileNotFoundException, IOException {
+	private void loadConfiguration() throws IOException {
         this.config = PropertiesUtils.loadProperties(CONFIG_FILE_NAME);
 	}
 
@@ -560,7 +536,7 @@ public class ExtractBlob {
 
 		this.extractionRun =
 				new ExtractionRun(Timestamp.valueOf(this.startTime), shouldInitialize(),
-						mustExtractAttachemts(), rowsToBeProcessed, packetSize, 
+						mustExtractAttachments(), rowsToBeProcessed, packetSize,
 						getParam(PARAM_NAME_TIME_TO_RUN));
 
 		try {
@@ -613,7 +589,7 @@ public class ExtractBlob {
 	}
 
 	private void extract(List<DocRow> rows, String logPrefix){
-		Collections.sort(rows, Comparator.comparing(DocRow :: getCreationDate));
+		rows.sort(Comparator.comparing(DocRow::getCreationDate));
 
 		info("Extracting...");
 		logNewLine();
@@ -630,7 +606,7 @@ public class ExtractBlob {
 			ExtractionRunDetails runDetails = getRunDetails(row);
 			
 			try {
-				if(!isMessageFile(row.getFileName()) || !mustExtractAttachemts()) {
+				if(!isMessageFile(row.getFileName()) || !mustExtractAttachments()) {
 					extractNonMail(row, runDetails, i, logPrefix);
 				}
 				else
@@ -697,7 +673,7 @@ public class ExtractBlob {
 	
 	private void extractMail(MAPIMessage msg, File targetFolder, ExtractionRunDetails runDetails, int identation) throws FileSaveException, AttachementReadingException{
 		String identationStr = "\t".repeat(identation);
-		int  attachemtNo = 0;
+		int attachmentNo = 0;
 		
 		// save body
 		File file = new File(targetFolder, "body.txt");
@@ -712,27 +688,27 @@ public class ExtractBlob {
 		
 		// save attachments
 		AttachmentChunks[] attachedFiles = msg.getAttachmentFiles();
-		String attachmentfilename = null;
+		String attachmentFileName = null;
 
 		try {
 			for(AttachmentChunks chunks : attachedFiles) {
-				attachemtNo++;
+				attachmentNo++;
 				
 				if(chunks.getAttachMimeTag() != null && excludeMimeTypes.contains(chunks.getAttachMimeTag().getValue()) && 
 						chunks.getAttachFileName().getValue().startsWith("image00"))
 					continue;
 			
-				attachmentfilename = chunks.getAttachDisplayName() != null ? chunks.getAttachDisplayName().toString() : chunks.getAttachFileName().toString();
+				attachmentFileName = chunks.getAttachDisplayName() != null ? chunks.getAttachDisplayName().toString() : chunks.getAttachFileName().toString();
 				
-				if(attachmentfilename == null)
-					attachmentfilename = "attachment";
+				if(attachmentFileName == null)
+					attachmentFileName = "attachment";
 
-				attachmentfilename = replaceUnacceptableCharacters(attachmentfilename);
+				attachmentFileName = replaceUnacceptableCharacters(attachmentFileName);
 				
 				if(chunks.isEmbeddedMessage()) {
-					File attachedMailFolder = new File(getDistinctivePath(targetFolder.toPath(), attachmentfilename));
+					File attachedMailFolder = new File(getDistinctivePath(targetFolder.toPath(), attachmentFileName));
 
-					logExtractionInfo(identationStr + "Extracting attachment", attachemtNo, attachmentfilename
+					logExtractionInfo(identationStr + "Extracting attachment", attachmentNo, attachmentFileName
 							+ " to " + Paths.get(this.extractionFolder).relativize(attachedMailFolder.toPath()), false);
 
 					extractMail(chunks.getEmbeddedMessage(), attachedMailFolder, runDetails, ++identation);
@@ -740,12 +716,12 @@ public class ExtractBlob {
 				}
 				else {
 					if (chunks.getAttachData() == null) {
-						throw new AttachementReadingException(identationStr + "Data is null for the attachment " + attachemtNo
-								+ " (, filename: " + attachmentfilename + ").");
+						throw new AttachementReadingException(identationStr + "Data is null for the attachment " + attachmentNo
+								+ " (, filename: " + attachmentFileName + ").");
 					}
-					file = new File(targetFolder, getDistinctiveFileName(targetFolder.toPath(), attachmentfilename));
+					file = new File(targetFolder, getDistinctiveFileName(targetFolder.toPath(), attachmentFileName));
 
-					logExtractionInfo(identationStr + "Extracting attachment", attachemtNo, attachmentfilename
+					logExtractionInfo(identationStr + "Extracting attachment", attachmentNo, attachmentFileName
 							+ " to " + Paths.get(this.extractionFolder).relativize(Paths.get(file.getPath())), false);
 
 					save(chunks.getAttachData(), file);
@@ -755,13 +731,13 @@ public class ExtractBlob {
 			}
 		}
 		catch(IOException e) {
-			throw new AttachementReadingException(identationStr + "Could not read attached mail data (Attachment name: " + attachmentfilename + ")", e);
+			throw new AttachementReadingException(identationStr + "Could not read attached mail data (Attachment name: " + attachmentFileName + ")", e);
 		}
 		catch (FileSaveException e) {
-			throw new FileSaveException(identationStr + "Could not save attachment (Attachment name: " + attachmentfilename + ")", e);
+			throw new FileSaveException(identationStr + "Could not save attachment (Attachment name: " + attachmentFileName + ")", e);
 		}
 		catch (InvalidPathException e) {
-			throw new FileSaveException(identationStr + "Path is invalid (Attachment name: " + attachmentfilename + ")", e);
+			throw new FileSaveException(identationStr + "Path is invalid (Attachment name: " + attachmentFileName + ")", e);
 		}
 	}
 
@@ -798,14 +774,13 @@ public class ExtractBlob {
 		
 		String[] nameParts = fileName.split("\\.");
 
-		String distinctiveName = 
-				fileName.replaceAll("." + nameParts[nameParts.length - 1], distinctiveNumberStr + "." + nameParts[nameParts.length - 1]);
+		String distinctiveName;
 
 		if(nameParts.length > 1)
 			distinctiveName =
 			fileName.replaceAll("." + nameParts[nameParts.length - 1], distinctiveNumberStr + "." + nameParts[nameParts.length - 1]);
 		else
-			distinctiveName += fileName + StringUtils.SPACE + distinctiveNumberStr;
+			distinctiveName = fileName + StringUtils.SPACE + distinctiveNumberStr;
 			
 		return distinctiveName.trim();
 	}
@@ -825,7 +800,7 @@ public class ExtractBlob {
 			}
 		}
 		
-		return number > 0 ? StringUtils.SPACE + "(" + String.valueOf(number + 1) + ")": StringUtils.EMPTY;
+		return number > 0 ? StringUtils.SPACE + "(" + (number + 1) + ")": StringUtils.EMPTY;
 	}
 
 	private void save(ByteChunk attachedData, File file) throws FileSaveException {
@@ -855,7 +830,8 @@ public class ExtractBlob {
 		}
 	}
 
-	private void save(InputStream inputStream, File file) throws FileNotFoundException, IOException {
+	@SuppressWarnings("ResultOfMethodCallIgnored")
+    private void save(InputStream inputStream, File file) throws IOException {
 		if(isTestMode())
 			return;
 
@@ -865,7 +841,7 @@ public class ExtractBlob {
 
 		try(OutputStream outputStream = new FileOutputStream(file)){
 			
-	        int bytesRead = -1;
+	        int bytesRead;
 	        byte[] buffer = new byte[1024];
 	        
 	        while ((bytesRead = inputStream.read(buffer)) != -1) {
@@ -891,9 +867,10 @@ public class ExtractBlob {
 		return this.params.get(paramName);
 	}
 
-	private List<DocRow> getDocsFromDB(String sql) throws RetrievingDocsException {
+	@SuppressWarnings("UnusedAssignment")
+    private List<DocRow> getDocsFromDB(String sql) throws RetrievingDocsException {
 		try (Connection conn = getDBAgent(this.DB_AGENT_SOURCE_NAME).getConnection(); 
-				PreparedStatement stmnt = conn.prepareStatement(sql);){
+				PreparedStatement stmnt = conn.prepareStatement(sql)){
 
 			int i = 1;
 			if(this.extractionRun.getProcessedUpTo() != null) {
@@ -906,7 +883,7 @@ public class ExtractBlob {
 			}
 
 			ResultSet resultSet = stmnt.executeQuery();
-			List<DocRow> rows = new ArrayList<DocRow>();
+			List<DocRow> rows = new ArrayList<>();
 			
 			while(resultSet.next()) {
 				DocRow docRow = new DocRow();
@@ -949,9 +926,10 @@ public class ExtractBlob {
 		executeSaveInitialRunSQL(sql);
 	}
 
-	private void executeSaveInitialRunSQL(String sql) throws SQLException {
+	@SuppressWarnings("UnusedAssignment")
+    private void executeSaveInitialRunSQL(String sql) throws SQLException {
 		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection();
-				PreparedStatement stmnt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS);) {
+				PreparedStatement stmnt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 			
 			int i = 1;
 			stmnt.setTimestamp(i++, this.extractionRun.getRunDate());
@@ -983,7 +961,7 @@ public class ExtractBlob {
 				.replaceAll(this.SQL_REF_TABLE_NAME_SUBST_VARIABLE, getConfig(CONFIG_EXTRACTION_RUN_TABLE));
 		
 		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection();
-				PreparedStatement stmnt = conn.prepareStatement(sql);) {
+				PreparedStatement stmnt = conn.prepareStatement(sql)) {
 
 			conn.setAutoCommit(false);
 
@@ -1032,8 +1010,9 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void executeSavePacketRowSQL(PreparedStatement stmnt, int runId, String docId, String relType, String relId, 
-											String cId, String accountNo, String actionId, String path, String status, String reason) throws SQLException  {
+	@SuppressWarnings("UnusedAssignment")
+    private void executeSavePacketRowSQL(PreparedStatement stmnt, int runId, String docId, String relType, String relId,
+                                         String cId, String accountNo, String actionId, String path, String status, String reason) throws SQLException  {
 		
 		int i = 1;
 		stmnt.setInt(	i++, runId);
@@ -1050,9 +1029,10 @@ public class ExtractBlob {
 		stmnt.executeUpdate();
 	}
 
-	private void executeSaveRunSQL(String sql) throws SQLException {
+	@SuppressWarnings("UnusedAssignment")
+    private void executeSaveRunSQL(String sql) throws SQLException {
 		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection();
-				PreparedStatement stmnt = conn.prepareStatement(sql);) {
+				PreparedStatement stmnt = conn.prepareStatement(sql)) {
 
 			int i = 1;
 			stmnt.setInt(i++, this.extractionRun.getRowsProcessed());
@@ -1066,7 +1046,8 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void deleteRunFromDatabase() {
+	@SuppressWarnings("UnusedAssignment")
+    private void deleteRunFromDatabase() {
 		if(isTestMode())
 			return;
 
@@ -1080,14 +1061,14 @@ public class ExtractBlob {
 
 			stmnt.executeUpdate();
 		}
-		catch(SQLException e) {
+		catch(SQLException ignored) {
 		}
 	}
 
 	private void initializeDBAgents() {
 		this.logger.info("Initialize database agents.");
 
-		this.dbAgents = new Hashtable<String, DatabaseAgent>();
+		this.dbAgents = new Hashtable<>();
 		
 		this.dbAgents.put(this.DB_AGENT_SOURCE_NAME, new DatabaseAgent(getConfig(CONFIG_SERVER), getConfig(CONFIG_DATABASE)));
 		
@@ -1112,13 +1093,14 @@ public class ExtractBlob {
 		deleteFolder(folder);
 	}
 
-	private void deleteFolder(Path path){
+	@SuppressWarnings("ResultOfMethodCallIgnored")
+    private void deleteFolder(Path path){
 		info("Deleting folder " + path.toString());
 	    
 		try (Stream<Path> paths = Files.walk(path)) {
 	        paths.sorted(Comparator.reverseOrder()).map(Path::toFile).forEach(File::delete);
 	    }
-	    catch (IOException e) {
+	    catch (IOException ignored) {
 		}
 		deleteFile(path, true);
 	}
@@ -1127,7 +1109,7 @@ public class ExtractBlob {
 		if (isTestMode()) 
 			return;
 
-			try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection()){
+		try (Connection conn = getDBAgent(this.DB_AGENT_RUN_NAME).getConnection()){
 
 			if (shouldInitialize()) {
 				
@@ -1154,7 +1136,7 @@ public class ExtractBlob {
 	private Timestamp getLastProcessedDate() throws SQLException {
 		String logMsg = "Retrieving last processed date... ";
 		
-		Timestamp date = null;
+		Timestamp date;
 		
 		String sql = this.SQL_MAX_PROCESSED_DATE.replaceAll(this.SQL_TABLE_NAME_SUBST_VARIABLE, getConfig(CONFIG_EXTRACTION_RUN_TABLE));
 		
@@ -1192,7 +1174,8 @@ public class ExtractBlob {
 		logNewLine(1);
 	}
 	
-	private void logNewLine(int numberOfLines) {
+	@SuppressWarnings("SameParameterValue")
+    private void logNewLine(int numberOfLines) {
 		for(int i = 0; i < numberOfLines; i++) {
 			this.newLineLogger.info(StringUtils.SPACE);
 		}
@@ -1214,7 +1197,8 @@ public class ExtractBlob {
 		this.logger.error(msg, t);
 	}
 	
-	private boolean shouldInitialize() {
+	@SuppressWarnings("ResultOfMethodCallIgnored")
+    private boolean shouldInitialize() {
 		if (this.shouldInitialize == null) {
 			File f = new File("init.txt");
 			this.shouldInitialize = Boolean.parseBoolean(getParam(PARAM_NAME_INITIALIZE)) && f.exists();
@@ -1228,7 +1212,7 @@ public class ExtractBlob {
 		return Boolean.parseBoolean(getParam(PARAM_NAME_TEST_MODE)); 
 	}
 	
-	private boolean mustExtractAttachemts() {
+	private boolean mustExtractAttachments() {
 		return Boolean.parseBoolean(getParam(PARAM_NAME_EXTRACT_ATTACHMENTS)); 
 	}
 	
@@ -1243,7 +1227,8 @@ public class ExtractBlob {
 		}
 	}
 
-	private void deleteFile(File file, boolean deleteParentDirs) {
+	@SuppressWarnings("ResultOfMethodCallIgnored")
+    private void deleteFile(File file, boolean deleteParentDirs) {
 		file.delete();
 		
 		if(!deleteParentDirs)
@@ -1259,11 +1244,13 @@ public class ExtractBlob {
 		}
 	}
 	
-	private void deleteFile(Path path, boolean deleteParentDirs) {
+	@SuppressWarnings("SameParameterValue")
+    private void deleteFile(Path path, boolean deleteParentDirs) {
 		deleteFile(new File(path.toUri()), deleteParentDirs);
 	}
 	
-	private boolean stopExecution() {
+	@SuppressWarnings("ResultOfMethodCallIgnored")
+    private boolean stopExecution() {
 		if(!this.stopExecution) {
 			File f = new File("stop.txt");
 			this.stopExecution = f.exists();
