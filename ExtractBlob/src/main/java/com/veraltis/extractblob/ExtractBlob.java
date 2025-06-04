@@ -159,6 +159,7 @@ public class ExtractBlob {
 			+ "		AccountNo nvarchar(max) NULL, "
 			+ "		ActionId nvarchar(max) NULL, "
 			+ "		Status varchar(2), "
+			+ "		Reason varchar(max), "
 			+ "		CONSTRAINT {tableName}_PK PRIMARY KEY (Id), "
 			+ "		CONSTRAINT {tableName}_{refTableName}_FK FOREIGN KEY ({refTableName}_Id) REFERENCES dbo.{refTableName}(Id) ON DELETE CASCADE"
 			+ "	) ON [PRIMARY];";
@@ -504,7 +505,7 @@ public class ExtractBlob {
 				this.extractionRun.setRowsProcessed(0);
 				this.extractionRun.setDocumentsExtracted(0);
 				error(e.getMessage() + " Rolling back...", e);
-				deleteFolder(Paths.get(this.extractionFolder));
+				deleteFolder(Paths.get(this.extractionFolder), false);
 				deleteRunFromDatabase();
 			}
 		}
@@ -512,7 +513,7 @@ public class ExtractBlob {
 
 	private void handleSavePacketException(SavePacketException e) {
 		error(e.getMessage(), e.getCause());
-		deletePacketFiles(e.getMessage());
+		deletePacketFiles();
 	}
 
 	private void finalizePacketProcessing() {
@@ -663,7 +664,7 @@ public class ExtractBlob {
 		catch (AttachementReadingException | FileSaveException e) {
 			warn(e.getExtendedMessage());
 			logExtractionInfo("Failed to extract document", docNo, ".", true);
-			deleteFolder(mailFolder.toPath());
+			deleteFolder(mailFolder.toPath(), true);
 			throw e;
 		}
 		finally {
@@ -1090,11 +1091,11 @@ public class ExtractBlob {
 		
 		info("Initialize output folder.");
 
-		deleteFolder(folder);
+		deleteFolder(folder, false);
 	}
 
 	@SuppressWarnings("ResultOfMethodCallIgnored")
-    private void deleteFolder(Path path){
+    private void deleteFolder(Path path, boolean deleteParent){
 		info("Deleting folder " + path.toString());
 	    
 		try (Stream<Path> paths = Files.walk(path)) {
@@ -1102,7 +1103,9 @@ public class ExtractBlob {
 	    }
 	    catch (IOException ignored) {
 		}
-		deleteFile(path, true);
+
+		if(deleteParent)
+			deleteFile(path.getParent(), true);
 	}
 
 	private void initializeRunTables() throws SQLException {
@@ -1216,15 +1219,17 @@ public class ExtractBlob {
 		return Boolean.parseBoolean(getParam(PARAM_NAME_EXTRACT_ATTACHMENTS)); 
 	}
 	
-	private void deletePacketFiles(String reason) {
+	private void deletePacketFiles() {
 		info("Deleting packet's files...");
+
 		for(ExtractionRunDetails detail : this.extractionRun.getDetails()) {
-			detail.markAsFailed(reason);
-			deleteFile(detail.getMainFile(), true);
-			for(File file : detail.getAttachments()) {
+			File file = detail.getMainFile();
+			if(file.isDirectory())
+				deleteFolder(file.toPath(), true);
+			else
 				deleteFile(file, true);
-			}
 		}
+		this.extractionRun.removeDetails();
 	}
 
 	@SuppressWarnings("ResultOfMethodCallIgnored")
@@ -1246,7 +1251,7 @@ public class ExtractBlob {
 	
 	@SuppressWarnings("SameParameterValue")
     private void deleteFile(Path path, boolean deleteParentDirs) {
-		deleteFile(new File(path.toUri()), deleteParentDirs);
+		deleteFile(path.toFile(), deleteParentDirs);
 	}
 	
 	@SuppressWarnings("ResultOfMethodCallIgnored")

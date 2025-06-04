@@ -36,7 +36,7 @@ public class ExtractionRun {
 		this.runFor				= runFor;
 	}
 
-	public ExtractionRunDetails newDetails(String docId, String relType, String relID, String cId, String accountNo, String actionId) {
+	ExtractionRunDetails newDetails(String docId, String relType, String relID, String cId, String accountNo, String actionId) {
 		ExtractionRunDetails row = new ExtractionRunDetails(this, docId, relType, relID, cId, accountNo, actionId);
 		
 		this.details.add(row);
@@ -93,11 +93,11 @@ public class ExtractionRun {
 		this.packetSize = packetSize;
 	}
 
-	public void setDetails(List<ExtractionRunDetails> rows) {
+	void setDetails(List<ExtractionRunDetails> rows) {
 		this.details = rows;
 	}
 
-	public List<ExtractionRunDetails> getDetails(){
+	List<ExtractionRunDetails> getDetails(){
 		return this.details;
 	}
 	
@@ -117,19 +117,16 @@ public class ExtractionRun {
 		this.duration = duration;
 	}
 
-	public boolean removeDetails(ExtractionRunDetails details) {
-		boolean removed = this.details.remove(details);
-		
-		if(removed) {
+	void removeDetails() {
+		for(ExtractionRunDetails detail : this.details) {
 			this.rowsProcessed = this.rowsProcessed - 1;
-			this.documentsExtracted = this.documentsExtracted - details.getAttachments().size() - 1;
+			this.documentsExtracted = this.documentsExtracted - detail.getAttachments().size() - 1;
 		}
-		
-		return removed;
+		this.details.retainAll(new ArrayList<ExtractionRunDetails>());
 	}
 
 	public void newPacket(int packetSize) {
-		this.details = new ArrayList<ExtractionRunDetails>(packetSize);
+		this.details = new ArrayList<>(packetSize);
 	}
 
 	public String getStatus() {
